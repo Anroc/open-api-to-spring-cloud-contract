@@ -31,12 +31,8 @@ class OpenApi2SpringCloudContractGenerator {
 		def paths = openApiSpec.paths
 		paths.each {path ->
 			def contract  = generateContractForPath(openApiSpec, path)
-			
-			def basePath = openApiSpec.basePath
-			def endpoint = "${basePath}${path.key}"
-			def httpMethod = path.value.keySet()[0]
-			
-			def fileName = fileNameForEndpoint(outputDirName,httpMethod,endpoint)
+			def endpoint = "${path.key}"			
+			def fileName = fileNameForEndpoint(outputDirName,endpoint)
 			
 			println "writing ${fileName} ..."
 			def contractFile = 
@@ -50,70 +46,79 @@ class OpenApi2SpringCloudContractGenerator {
      * Generate Contract DSL for each specified path	
      */
 	def generateContractForPath(openApiSpec, path) {
-		def basePath = openApiSpec.basePath
-		def endpoint = "${basePath}${path.key}"
-		def httpMethod = path.value.keySet()[0]
-		def pathSpec = path.value[httpMethod]
-		
-		
-		 injectParamsIntoEndpoint(endpoint, pathSpec);
-
+		def endpoint = "${path.key}"
+		def httpMethods = path.value.keySet()
 		def contract = """
 package contracts.transactions
 
 import org.springframework.cloud.contract.spec.Contract
 
-Contract.make {
-    request {
-       description(\"\"\"
-${pathSpec.description}
+[       """
+		for (def i = 0; i < httpMethods.size(); i++) {
+			def httpMethod = httpMethods[i];
+			def pathSpec = path.value[httpMethod]
+			def responseStatusCode = findAnySuccessfullStatusCode(pathSpec.responses);
+		 	def injectedEndpointURL = injectParamsIntoEndpoint(
+		 		endpoint, pathSpec, openApiSpec, pathSpec.responses[responseStatusCode]?.schema
+		 	);
 
-            Given:
-                ${httpMethod.toUpperCase()} to ${endpoint}
-            When:
+		 	contract += """
+	Contract.make {
+    	request {
+       		description(\"\"\"
+				${pathSpec.description}
+
+            	Given:
+                	${httpMethod.toUpperCase()} to ${endpoint}
+            	When:
 				
-            And:
+	            And:
 				
-            Then:
+    	        Then:
 			
-        \"\"\")
-        method \'${httpMethod.toUpperCase()}\'
-        url \'${injectParamsIntoEndpoint(endpoint, pathSpec)}\'\n"""
+        	\"\"\")
+        	method \'${httpMethod.toUpperCase()}\'
+        	url \'${injectedEndpointURL}\'\n"""
 		
-		def requestBodySchema = pathSpec.parameters.find{it.in == 'body'}?.schema
+			def requestBodySchema = pathSpec.parameters.find{it.in == 'body'}?.schema
 		
-		if (requestBodySchema) {	
-		  contract = contract + """ 
-        body (\"\"\"\n
+			if (requestBodySchema) {	
+		  		contract = contract + """ 
+        	body (\"\"\"\n
 ${generateSampleJsonForBody(openApiSpec.definitions, requestBodySchema)}
-            \n\"\"\")
-        """
-		}
-		contract = contract + """ 
-       headers {
-          header('Content-Type', 'application/json')
-          header('Accept','application/json')
-       }
-   }
+            	\n\"\"\")
+        		"""
+			}
+			contract = contract + """ 
+       		headers {
+          		header('Content-Type', 'application/json')
+          		header('Accept','application/json')
+       		}
+   		}
       
-   response {
-       status 200 """
-		def responseBodySchema = pathSpec.responses['200']?.schema
-		if (responseBodySchema) {
-		  contract = contract + """ 
-        body (\"\"\"\n
+   		response {
+       		status ${responseStatusCode} """
+			def responseBodySchema = pathSpec.responses[responseStatusCode]?.schema
+			if (responseBodySchema) {
+		  		contract = contract + """ 
+        	body (\"\"\"\n
 ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
             \n\"\"\")
-        headers {
-          header('Content-Type', 'application/json')
-        }
-        """
+        	headers {
+          		header('Content-Type', 'application/json')
+        	}
+        	"""
+			}
+			contract = contract + """		  
+   		}
+	}"""	
+        	if (i < httpMethods.size() - 1) {
+				contract += ",\n";
+			}
 		}
-contract = contract + """		  
-	 }
-   }
-}
-		"""
+	   contract += """
+]
+""";
 	   return contract
 	}
 	
@@ -137,22 +142,44 @@ contract = contract + """
 		
 		
 	}
+
+	// def extractExampleId(schemaDefinitions, schema) {
+		
+	// 	def schemaType = (schema.type == 'array') ? schema.items : schema 
+		
+	// 	if (schemaType['$ref']){
+	// 	   def bodyType = schemaTypeFromRef(schemaType)
+	// 	   def builder = new groovy.json.JsonBuilder()
+	// 	   def content = [schemaToJsonExample(builder, schemaDefinitions,bodyType)]
+	// 	   return (schema.type == 'array') ?
+	// 		 new groovy.json.JsonBuilder(content)[0].get('id', null) : builder.get('id', null)
+	// 	}
+	// 	return null;
+	// }
 	
 	/*
 	 * Substitute sample values for path variable placeholders
 	 */
-	def injectParamsIntoEndpoint(endpoint, pathSpec) {
+	def injectParamsIntoEndpoint(endpoint, pathSpec, openApiSpec, responseSchemaOptional) {
 		def pathParams = (pathSpec.parameters as List).findAll{it.in == 'path'}
 		
 		def tokens = endpoint.split('/')
+
 		def endpointWithInjectVariables = tokens.collect { tok ->
 			if (tok.startsWith('{') && tok.endsWith('}')) {
-				def variableName = tok.replaceAll("[\\[\\](){}]","")
+				def variableName = tok.replaceAll("\\?\\w+", "").replaceAll("[\\[\\](){}]","")
 				def pathParam = pathParams.find{it.name == variableName}
 				if (!pathParam) {
 					throw new RuntimeException("path variable '$variableName' in endpoint path $endpoint not declared as a path parameter")
 				}
 				if (pathParam.type=='string') {
+					// if(responseSchemaOptional) {
+					// 	println responseSchemaOptional
+					// 	def exampleUUID = extractExampleId(openApiSpec.definitions, responseSchemaOptional);
+					// 	if(exampleUUID != null) {
+					// 		return exampleUUID;
+					// 	}
+					// }
 					return "some${variableName.capitalize()}"
 				}
 				else if (pathParam.type=='number' || pathParam.type == 'integer') {
@@ -162,7 +189,7 @@ contract = contract + """
 			return tok
 		}
 		
-		def resourcePath =  endpointWithInjectVariables.join('/')
+		def resourcePath =  endpointWithInjectVariables.join('/').replaceAll("(\\{\\?\\w+\\})", "")
 		
 		def queryParams = (pathSpec.parameters as List).findAll{it.in == 'query'}
 		
@@ -196,13 +223,13 @@ contract = contract + """
 	/*
 	 * Generate a fileName for the endpoint
 	 */
-	def fileNameForEndpoint(outputDirName, httpMethod, endpoint) {
+	def fileNameForEndpoint(outputDirName, endpoint) {
 		def tokens = endpoint.split('/')
 		def caps = tokens.findAll{!it.empty}.collect { tok-> 
 				def cap = tok.replaceAll("[\\[\\](){}]","") as CharSequence
 				cap.capitalize()
 		}
-		def filename = "${outputDirName}/${httpMethod + caps.join('')}ContractTest.groovy"
+		def filename = "${outputDirName}/${caps.join('')}ContractTest.groovy"
 		return filename
 	}
 	
@@ -287,6 +314,16 @@ contract = contract + """
 			return "2017-01-01"
 		}
 		return "some${name.capitalize()}"
+	}
+
+	def findAnySuccessfullStatusCode(responseSpec) {
+		for(status in responseSpec) {
+			def code = status.key.toInteger();
+			if(code >= 200 && code < 300) {
+				return status.key;
+			}
+		}
+		return '200';
 	}
 }
 
