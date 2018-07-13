@@ -203,10 +203,8 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	def fileNameForEndpoint(outputDirName, endpoint) {
 		def tokens = endpoint.split('/')
 
-		def versionDirName = "other";  
 		def resourceDirName = tokens[1];
 		if(tokens.size() > 2) {
-			versionDirName = tokens[1];
 			resourceDirName = tokens[2];
 		}
 		def caps = tokens.findAll{!it.empty}.collect { tok-> 
@@ -214,12 +212,12 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 			cap.capitalize()
 		}
 		
-		def resourceFilePath = new File("${outputDirName}/${versionDirName}/${resourceDirName}");
+		def resourceFilePath = new File("${outputDirName}/${resourceDirName}");
 		if(! resourceFilePath.exists()) {
 			resourceFilePath.mkdirs();
 		}
 
-		def filename = "${outputDirName}/${versionDirName}/${resourceDirName}/${caps.join('')}ContractTest.groovy"
+		def filename = "${outputDirName}/${resourceDirName}/${caps.join('')}ContractTest.groovy"
 		return filename
 	}
 	
