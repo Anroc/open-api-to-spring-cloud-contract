@@ -49,8 +49,6 @@ class OpenApi2SpringCloudContractGenerator {
 		def endpoint = "${path.key}"
 		def httpMethods = path.value.keySet()
 		def contract = """
-package contracts.transactions
-
 import org.springframework.cloud.contract.spec.Contract
 
 [       """
@@ -142,20 +140,6 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 		
 		
 	}
-
-	// def extractExampleId(schemaDefinitions, schema) {
-		
-	// 	def schemaType = (schema.type == 'array') ? schema.items : schema 
-		
-	// 	if (schemaType['$ref']){
-	// 	   def bodyType = schemaTypeFromRef(schemaType)
-	// 	   def builder = new groovy.json.JsonBuilder()
-	// 	   def content = [schemaToJsonExample(builder, schemaDefinitions,bodyType)]
-	// 	   return (schema.type == 'array') ?
-	// 		 new groovy.json.JsonBuilder(content)[0].get('id', null) : builder.get('id', null)
-	// 	}
-	// 	return null;
-	// }
 	
 	/*
 	 * Substitute sample values for path variable placeholders
@@ -173,13 +157,6 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 					throw new RuntimeException("path variable '$variableName' in endpoint path $endpoint not declared as a path parameter")
 				}
 				if (pathParam.type=='string') {
-					// if(responseSchemaOptional) {
-					// 	println responseSchemaOptional
-					// 	def exampleUUID = extractExampleId(openApiSpec.definitions, responseSchemaOptional);
-					// 	if(exampleUUID != null) {
-					// 		return exampleUUID;
-					// 	}
-					// }
 					return "some${variableName.capitalize()}"
 				}
 				else if (pathParam.type=='number' || pathParam.type == 'integer') {
@@ -225,11 +202,24 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	 */
 	def fileNameForEndpoint(outputDirName, endpoint) {
 		def tokens = endpoint.split('/')
-		def caps = tokens.findAll{!it.empty}.collect { tok-> 
-				def cap = tok.replaceAll("[\\[\\](){}]","") as CharSequence
-				cap.capitalize()
+
+		def versionDirName = "other";  
+		def resourceDirName = tokens[1];
+		if(tokens.size() > 2) {
+			versionDirName = tokens[1];
+			resourceDirName = tokens[2];
 		}
-		def filename = "${outputDirName}/${caps.join('')}ContractTest.groovy"
+		def caps = tokens.findAll{!it.empty}.collect { tok-> 
+		def cap = tok.replaceAll("[\\[\\](){}]","") as CharSequence
+			cap.capitalize()
+		}
+		
+		def resourceFilePath = new File("${outputDirName}/${versionDirName}/${resourceDirName}");
+		if(! resourceFilePath.exists()) {
+			resourceFilePath.mkdirs();
+		}
+
+		def filename = "${outputDirName}/${versionDirName}/${resourceDirName}/${caps.join('')}ContractTest.groovy"
 		return filename
 	}
 	
