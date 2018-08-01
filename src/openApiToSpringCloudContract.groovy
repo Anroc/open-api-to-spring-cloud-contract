@@ -235,7 +235,7 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 					 
 					 def array = []
 					 if (schema.example) {
-					 	"$name" schema.example
+					   "$name" schema.example
 					 } else if (schema.items['$ref']){
 					   "$name" array << schemaToJsonExample(builder, schemaDefinitions, schemaTypeFromRef(schema.items))
 					 } 
