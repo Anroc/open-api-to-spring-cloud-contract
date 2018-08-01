@@ -66,13 +66,7 @@ import org.springframework.cloud.contract.spec.Contract
        		description(\"\"\"
 				${pathSpec.description}
 
-            	Given:
-                	${httpMethod.toUpperCase()} to ${endpoint}
-            	When:
-				
-	            And:
-				
-    	        Then:
+            	URL: ${httpMethod.toUpperCase()} to ${endpoint}
 			
         	\"\"\")
         	method \'${httpMethod.toUpperCase()}\'
@@ -156,6 +150,10 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 				if (!pathParam) {
 					throw new RuntimeException("path variable '$variableName' in endpoint path $endpoint not declared as a path parameter")
 				}
+				
+				if (pathParam['x-example']) {
+					return pathParam['x-example']
+				}
 				if (pathParam.type=='string') {
 					return "some${variableName.capitalize()}"
 				}
@@ -236,8 +234,9 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 				 if (schema.type == 'array') {
 					 
 					 def array = []
-					 if (schema.items['$ref']){
-						 
+					 if (schema.example) {
+					 	"$name" schema.example
+					 } else if (schema.items['$ref']){
 					   "$name" array << schemaToJsonExample(builder, schemaDefinitions, schemaTypeFromRef(schema.items))
 					 } 
 					 else {
@@ -271,6 +270,7 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	 * Generate a sample value for a simple type field
 	 */
 	def sampleValueForSimpleTypeField(name, property) {
+
 		if (property.example){
 			return property.example
 		}
