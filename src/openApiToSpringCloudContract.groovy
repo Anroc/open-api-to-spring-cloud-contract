@@ -127,8 +127,9 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 		   def content = [schemaToJsonExample(builder, schemaDefinitions,bodyType)]
 		   return (schema.type == 'array') ?
 			 new groovy.json.JsonBuilder(content).toPrettyString() : builder.toPrettyString()
-		}
-		else {
+		} else if (schema.type == 'string') {
+			return '"' + sampleValueForSimpleTypeField("body",schemaType) + '"'
+		} else {
 			return sampleValueForSimpleTypeField("body",schemaType)
 		}
 		
