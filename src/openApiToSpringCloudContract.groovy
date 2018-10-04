@@ -5,23 +5,20 @@ import java.lang.annotation.AnnotationFormatError
 import org.yaml.snakeyaml.Yaml
 class openApiToSpringCloudContract {
    static main(String... args){
-	   if (args.length < 2) {
-		   System.err.println("Usage: openApiToSpringCloudContract [openAPISpecFile.yaml] [outputDir]")
+	   if (args.length < 3) {
+		   System.err.println("Usage: openApiToSpringCloudContract [openAPISpecFile.yaml] [outputDir] [contractType:rest|messages]")
 		   System.exit(1)
 	   }
 	   def fileName = args[0]
 	   def outputDirName = args[1]
-	   def outputDir = new File(outputDirName)
-	   if (!outputDir.exists()) {
-		   	outputDir.mkdir()
-	   }
-	   new OpenApi2SpringCloudContractGenerator().generateSpringCloudContractDSL(fileName,outputDirName)
+	   def contractType = args[2]
+	   new OpenApi2SpringCloudContractGenerator().generateSpringCloudContractDSL(fileName,outputDirName, contractType)
    } 
 }
 
 class OpenApi2SpringCloudContractGenerator {
 	
-	def generateSpringCloudContractDSL(filename, outputDirName) {
+	def generateSpringCloudContractDSL(filename, outputDirName, contractType) {
 		
 		println "reading ${filename}..."
 		
@@ -29,25 +26,44 @@ class OpenApi2SpringCloudContractGenerator {
 		Map openApiSpec = parser.load((filename as File).text)
 		
 		def paths = openApiSpec.paths
-		paths.each {path ->
-			def contract  = generateContractForPath(openApiSpec, path)
-			def endpoint = "${path.key}"			
-			def fileName = fileNameForEndpoint(outputDirName,endpoint)
+		paths.each { path ->
+						def consumers = collectConsumersNames(path)
+						println("Consumers ${consumers} found for ${path.key}")
+						for (consumer in consumers) {
+							def contract  = generateContractForPath(openApiSpec, path, consumer)
+							if(contract == null) {
+								// contract was ignored for each httpmethod
+								return;
+							}
+							def endpoint = "${path.key}"		
+
+							def fileName = fileNameForEndpoint(outputDirName,endpoint, contractType, consumer)
 			
-			println "writing ${fileName} ..."
-			def contractFile = 
-			new File(fileName).withOutputStream { stream ->
-				stream << contract
-			}	
-		}
+							println "writing ${fileName} ..." 
+							new File(fileName).withOutputStream { stream ->
+								stream << contract
+							}	
+						}
+			}
+	}
+
+	def collectConsumersNames(path) {
+		path.value.keySet()
+		.findAll {
+			! path.value[it].containsKey('x-ignored') || path.value[it]['x-ignored'] == false
+		}.collectMany {
+			path.value[it]['x-consumers']
+		} as Set
 	}
 	
     /*
      * Generate Contract DSL for each specified path	
      */
-	def generateContractForPath(openApiSpec, path) {
+	def generateContractForPath(openApiSpec, path, consumer) {
 		def endpoint = "${path.key}"
 		def httpMethods = path.value.keySet()
+		println(httpMethods)
+		def ignoredHttpMethods = 0
 		def contract = """
 import org.springframework.cloud.contract.spec.Contract
 
@@ -55,6 +71,11 @@ import org.springframework.cloud.contract.spec.Contract
 		for (def i = 0; i < httpMethods.size(); i++) {
 			def httpMethod = httpMethods[i];
 			def pathSpec = path.value[httpMethod]
+			if(! pathSpec['x-consumers'].contains(consumer) 
+				|| ( pathSpec.containsKey('x-ignored') && pathSpec['x-ignored'] == true)) {
+				ignoredHttpMethods++
+				continue
+			}
 			def responseStatusCode = findAnySuccessfullStatusCode(pathSpec.responses);
 		 	def injectedEndpointURL = injectParamsIntoEndpoint(
 		 		endpoint, pathSpec, openApiSpec, pathSpec.responses[responseStatusCode]?.schema
@@ -96,10 +117,12 @@ ${generateSampleJsonForBody(openApiSpec.definitions, requestBodySchema)}
         	body (\"\"\"\n
 ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
             \n\"\"\")
+        	"""
+        	/*
         	headers {
           		header('Content-Type', 'application/json')
         	}
-        	"""
+        	*/
 			}
 			contract = contract + """		  
    		}
@@ -111,7 +134,11 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	   contract += """
 ]
 """;
-	   return contract
+	   	if(httpMethods.size() == ignoredHttpMethods) {
+	   		return null
+	   	} else {
+	   		return contract
+		}
 	}
 	
 	/*
@@ -129,6 +156,9 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 			 new groovy.json.JsonBuilder(content).toPrettyString() : builder.toPrettyString()
 		} else if (schema.type == 'string') {
 			return '"' + sampleValueForSimpleTypeField("body",schemaType) + '"'
+		} else if (schema.type == 'object') {
+			// generic type 'Object' can not be interpreted.
+			return "{ }"
 		} else {
 			return sampleValueForSimpleTypeField("body",schemaType)
 		}
@@ -199,7 +229,7 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	/*
 	 * Generate a fileName for the endpoint
 	 */
-	def fileNameForEndpoint(outputDirName, endpoint) {
+	def fileNameForEndpoint(outputDirName, endpoint, contractType, consumer) {
 		def tokens = endpoint.split('/')
 
 		def resourceDirName = tokens[1];
@@ -211,13 +241,13 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 			cap.capitalize()
 		}
 		
-		def resourceFilePath = new File("${outputDirName}/${resourceDirName}");
+		def resourcePath = "${outputDirName}/${consumer}/${contractType}/${resourceDirName}"
+		def resourceFilePath = new File(resourcePath)
 		if(! resourceFilePath.exists()) {
-			resourceFilePath.mkdirs();
+			resourceFilePath.mkdirs()
 		}
 
-		def filename = "${outputDirName}/${resourceDirName}/${caps.join('')}ContractTest.groovy"
-		return filename
+		return "${resourcePath}/${caps.join('')}ContractTest.groovy"
 	}
 	
 	/*
@@ -229,13 +259,13 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 		
 		def result = builder  { 
 			schemaProperties.each {name,schema ->
-				 if (schema.type  && schema.type != 'array') {
+				if (schema.example != null){
+					"$name"  schema.example
+				 } else if (schema.type  && schema.type != 'array') {
 					 "$name"  sampleValueForSimpleTypeField(name, schema)		
-				 }
-				 if (schema.type == 'array') {
-					 
+				 } else if (schema.type == 'array') {
 					 def array = []
-					 if (schema.example) {
+					 if (schema.example != null) {
 					   "$name" schema.example
 					 } else if (schema.items['$ref']){
 					   "$name" array << schemaToJsonExample(builder, schemaDefinitions, schemaTypeFromRef(schema.items))
@@ -273,6 +303,7 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	def sampleValueForSimpleTypeField(name, property) {
 
 		if (property.example){
+			println(name + ", " + property.example)
 			return property.example
 		}
 
