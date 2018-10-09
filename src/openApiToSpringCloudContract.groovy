@@ -6,7 +6,7 @@ import org.yaml.snakeyaml.Yaml
 class openApiToSpringCloudContract {
    static main(String... args){
 	   if (args.length < 3) {
-		   System.err.println("Usage: openApiToSpringCloudContract [openAPISpecFile.yaml] [outputDir] [contractType:rest|messages]")
+		   System.err.println("Usage: openApiToSpringCloudContract [openAPISpecFile.yaml] [outputDir] [contractType:rest]")
 		   System.exit(1)
 	   }
 	   def fileName = args[0]
@@ -28,12 +28,17 @@ class OpenApi2SpringCloudContractGenerator {
 		def paths = openApiSpec.paths
 		paths.each { path ->
 						def consumers = collectConsumersNames(path)
-						println("Consumers ${consumers} found for ${path.key}")
+						if (consumers.isEmpty()) {
+							println "No consumers found for (unignored) endpoint ${path.key}!"
+							println "Specify them with the 'x-consumers' (list) attribute or exclude the endpoint with the 'x-ignored: true' attribute."
+							abort()
+						}
+						
 						for (consumer in consumers) {
 							def contract  = generateContractForPath(openApiSpec, path, consumer)
 							if(contract == null) {
 								// contract was ignored for each httpmethod
-								return;
+								return
 							}
 							def endpoint = "${path.key}"		
 
@@ -47,10 +52,17 @@ class OpenApi2SpringCloudContractGenerator {
 			}
 	}
 
+	def abort() {
+		println "Aborting execution."
+		System.exit(0)
+	}
+
 	def collectConsumersNames(path) {
 		path.value.keySet()
 		.findAll {
 			! path.value[it].containsKey('x-ignored') || path.value[it]['x-ignored'] == false
+		}.findAll{
+			path.value[it]['x-consumers'] != null
 		}.collectMany {
 			path.value[it]['x-consumers']
 		} as Set
