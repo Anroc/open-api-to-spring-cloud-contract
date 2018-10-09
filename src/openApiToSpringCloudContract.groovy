@@ -28,10 +28,12 @@ class OpenApi2SpringCloudContractGenerator {
 		def paths = openApiSpec.paths
 		paths.each { path ->
 						def consumers = collectConsumersNames(path)
-						if (consumers.isEmpty()) {
-							println "No consumers found for (unignored) endpoint ${path.key}!"
-							println "Specify them with the 'x-consumers' (list) attribute or exclude the endpoint with the 'x-ignored: true' attribute."
-							abort()
+						if (! isEndpointCompletlyIgnored(path.value.values())) {
+							if(consumers.isEmpty()) {
+								errorMissingConsumer(path.key, null)
+							}
+						} else {
+							println("ignoring ${path.key}")
 						}
 						
 						for (consumer in consumers) {
@@ -51,22 +53,6 @@ class OpenApi2SpringCloudContractGenerator {
 						}
 			}
 	}
-
-	def abort() {
-		println "Aborting execution."
-		System.exit(0)
-	}
-
-	def collectConsumersNames(path) {
-		path.value.keySet()
-		.findAll {
-			! path.value[it].containsKey('x-ignored') || path.value[it]['x-ignored'] == false
-		}.findAll{
-			path.value[it]['x-consumers'] != null
-		}.collectMany {
-			path.value[it]['x-consumers']
-		} as Set
-	}
 	
     /*
      * Generate Contract DSL for each specified path	
@@ -74,8 +60,11 @@ class OpenApi2SpringCloudContractGenerator {
 	def generateContractForPath(openApiSpec, path, consumer) {
 		def endpoint = "${path.key}"
 		def httpMethods = path.value.keySet()
-		println(httpMethods)
-		def ignoredHttpMethods = 0
+
+		if (isEndpointCompletlyIgnored(path.value.values())) {
+			return null
+		}
+
 		def contract = """
 import org.springframework.cloud.contract.spec.Contract
 
@@ -83,11 +72,11 @@ import org.springframework.cloud.contract.spec.Contract
 		for (def i = 0; i < httpMethods.size(); i++) {
 			def httpMethod = httpMethods[i];
 			def pathSpec = path.value[httpMethod]
-			if(! pathSpec['x-consumers'].contains(consumer) 
-				|| ( pathSpec.containsKey('x-ignored') && pathSpec['x-ignored'] == true)) {
-				ignoredHttpMethods++
+
+			if(! extractConsumers(pathSpec,endpoint, httpMethod).contains(consumer)) {
 				continue
 			}
+
 			def responseStatusCode = findAnySuccessfullStatusCode(pathSpec.responses);
 		 	def injectedEndpointURL = injectParamsIntoEndpoint(
 		 		endpoint, pathSpec, openApiSpec, pathSpec.responses[responseStatusCode]?.schema
@@ -146,11 +135,51 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	   contract += """
 ]
 """;
-	   	if(httpMethods.size() == ignoredHttpMethods) {
-	   		return null
-	   	} else {
-	   		return contract
+	   	return contract
+	}
+
+	def errorMissingConsumer(endpoint, method) {
+		String methodPath = (method != null ? method.toUpperCase() + ":" : "") + endpoint
+		println "\n\nError: No consumers found for (unignored) endpoint '${methodPath}'."
+		println "Specify them with the 'x-consumers' (list) attribute or exclude the endpoint with the 'x-ignored: true' attribute."
+		abort()
+	}
+
+	def abort() {
+		println "Aborting execution."
+		System.exit(0)
+	}
+
+	def collectConsumersNames(path) {
+		path.value.keySet()
+		.findAll {
+			! isIgnored(path.value[it])
 		}
+		.findAll{
+			path.value[it]['x-consumers'] != null
+		}.collectMany {
+			path.value[it]['x-consumers']
+		} as Set
+	}
+
+	def extractConsumers(pathSpec, endpoint, httpmethod) {
+		if(isIgnored(pathSpec)) {
+			return []
+		}
+
+		if(! pathSpec.containsKey('x-consumers')) {
+			errorMissingConsumer(endpoint, httpmethod)
+		}
+
+		return pathSpec['x-consumers']
+	}
+
+	def isIgnored(pathSpec) {
+		return pathSpec.containsKey('x-ignored') && pathSpec['x-ignored'] == true
+	}
+
+	def isEndpointCompletlyIgnored(endpointValues) {
+		return endpointValues.findAll { ! isIgnored(it) }.isEmpty()
 	}
 	
 	/*
