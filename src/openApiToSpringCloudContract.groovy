@@ -1,4 +1,5 @@
 import java.lang.annotation.AnnotationFormatError
+import groovy.json.JsonSlurper
 
 @GrabConfig( )
 @Grab('org.yaml:snakeyaml:1.17')
@@ -21,9 +22,7 @@ class OpenApi2SpringCloudContractGenerator {
 	def generateSpringCloudContractDSL(filename, outputDirName, contractType) {
 		
 		println "reading ${filename}..."
-		
-		Yaml parser = new Yaml()
-		Map openApiSpec = parser.load((filename as File).text)
+		Map openApiSpec = readFile(filename)
 		
 		def paths = openApiSpec.paths
 		paths.each { path ->
@@ -53,6 +52,34 @@ class OpenApi2SpringCloudContractGenerator {
 						}
 			}
 	}
+
+	def readFile(String filename) {
+		String fileType = determineFileType(filename)
+		if(fileType == "YAML") {
+			Yaml parser = new Yaml()	
+			return parser.load((filename as File).text)
+		} else if(fileType == "JSON") {
+			JsonSlurper parser = new JsonSlurper()
+			return parser.parseText((filename as File).text)
+		} else {
+			println "Unknown filetype: ${filename}."
+			abort()
+		}
+	}
+
+	def determineFileType(String filename) {
+		def matcher = (filename =~ /.*\.(.*)$/)
+
+		if(matcher.matches()) {
+    		def extension = matcher[0][1]
+    		if(extension.toLowerCase() in ["yml", "yaml"]) {
+    			return "YAML"
+    		} else if(extension.toLowerCase() == "json") {
+    			return "JSON"
+    		}
+    		return "UNKNOWN"
+    	}
+    }
 	
     /*
      * Generate Contract DSL for each specified path	
