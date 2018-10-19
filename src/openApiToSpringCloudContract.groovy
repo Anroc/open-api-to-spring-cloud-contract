@@ -13,13 +13,17 @@ class openApiToSpringCloudContract {
 	   def fileName = args[0]
 	   def outputDirName = args[1]
 	   def contractType = args[2]
-	   new OpenApi2SpringCloudContractGenerator().generateSpringCloudContractDSL(fileName,outputDirName, contractType)
+	   def endpointDir = null
+	   if(args.length == 4) {
+	   		endpointDir = args[3]
+	   }
+	   new OpenApi2SpringCloudContractGenerator().generateSpringCloudContractDSL(fileName,outputDirName, contractType, endpointDir)
    } 
 }
 
 class OpenApi2SpringCloudContractGenerator {
 	
-	def generateSpringCloudContractDSL(filename, outputDirName, contractType) {
+	def generateSpringCloudContractDSL(filename, outputDirName, contractType, endpointDir) {
 		
 		println "reading ${filename}..."
 		Map openApiSpec = readFile(filename)
@@ -41,9 +45,9 @@ class OpenApi2SpringCloudContractGenerator {
 								// contract was ignored for each httpmethod
 								return
 							}
-							def endpoint = "${path.key}"		
 
-							def fileName = fileNameForEndpoint(outputDirName,endpoint, contractType, consumer)
+							def endpoint = "${path.key}"		
+							def fileName = fileNameForEndpoint(outputDirName, endpoint, contractType, consumer, endpointDir)
 			
 							println "writing ${fileName} ..." 
 							new File(fileName).withOutputStream { stream ->
@@ -297,12 +301,14 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	/*
 	 * Generate a fileName for the endpoint
 	 */
-	def fileNameForEndpoint(outputDirName, endpoint, contractType, consumer) {
+	def fileNameForEndpoint(outputDirName, endpoint, contractType, consumer, resourceDirName) {
 		def tokens = endpoint.split('/')
 
-		def resourceDirName = tokens[1];
-		if(tokens.size() > 2) {
-			resourceDirName = tokens[2];
+		if(resourceDirName == null) {
+			resourceDirName = tokens[1];
+			if(tokens.size() > 2) {
+				resourceDirName = tokens[2];
+			}
 		}
 		def caps = tokens.findAll{!it.empty}.collect { tok-> 
 		def cap = tok.replaceAll("[\\[\\](){}]","") as CharSequence
