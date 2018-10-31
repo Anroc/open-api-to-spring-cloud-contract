@@ -402,6 +402,10 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 			return property['x-example']
 		}
 
+		if (property.containsKey('default')){
+			return property['default']
+		}
+
 		def type = property.type
 		def format = property.format
 		
