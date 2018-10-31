@@ -1,5 +1,6 @@
 import java.lang.annotation.AnnotationFormatError
 import groovy.json.JsonSlurper
+import groovy.transform.*
 
 @GrabConfig( )
 @Grab('org.yaml:snakeyaml:1.17')
@@ -113,6 +114,8 @@ import org.springframework.cloud.contract.spec.Contract
 		 		endpoint, pathSpec, openApiSpec, pathSpec.responses[responseStatusCode]?.schema
 		 	);
 
+		 	def additionalHeaders = collectHeaders(pathSpec.parameters)
+
 		 	contract += """
 	Contract.make {
     	request {
@@ -138,6 +141,7 @@ ${generateSampleJsonForBody(openApiSpec.definitions, requestBodySchema)}
        		headers {
           		header('Content-Type', 'application/json')
           		header('Accept','application/json')
+          		${additionalHeaders}
        		}
    		}
       
@@ -271,7 +275,6 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 		
 		def queryParams = (pathSpec.parameters as List).findAll{it.in == 'query'}
 		
-		
 		queryParams.eachWithIndex {qp, i ->
 			 
 			def delim = (i == 0) ? '?' : '&'			
@@ -296,6 +299,21 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 		}
 		
 		return resourcePath
+	}
+
+	def collectHeaders(parameters) {
+		def headerParams = (parameters as List).findAll{it.in == 'header'}
+
+
+		def headerStrings = []
+
+		for(header in headerParams) {
+			if (header.required) {
+				headerStrings << "header('${header.name}','${sampleValueForSimpleTypeField(header.name, header)}')"
+			}
+		}
+
+		return headerStrings.join('\n')
 	}
 	
 	/*
@@ -377,8 +395,11 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 	def sampleValueForSimpleTypeField(name, property) {
 
 		if (property.example){
-			println(name + ", " + property.example)
 			return property.example
+		}
+
+		if (property.containsKey('x-example')){
+			return property['x-example']
 		}
 
 		def type = property.type
