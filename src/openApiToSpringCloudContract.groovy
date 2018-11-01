@@ -153,6 +153,11 @@ ${generateSampleJsonForBody(openApiSpec.definitions, requestBodySchema)}
         	body (\"\"\"\n
 ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
             \n\"\"\")
+
+
+    		bodyMatchers {
+    			${generateMatchers(openApiSpec.definitions, responseBodySchema)}
+			}
         	"""
         	/*
         	headers {
@@ -240,6 +245,24 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 		}
 		
 		
+	}
+
+	def generateMatchers(schemaDefinitions, schema) {
+		def schemaType = (schema.type == 'array') ? schema.items : schema 
+		def bodyType = schemaTypeFromRef(schemaType)
+		def schemaProperties = schemaDefinitions["${bodyType}"].properties
+
+		def bodyMatchers = []
+
+		// TODO recursively find matchers for nested objects
+		schemaProperties.each {name,fieldProperty ->
+			if(fieldProperty.containsKey("x-bodymatcher")) {
+				bodyMatchers << "jsonPath('\$.${name}', ${fieldProperty["x-bodymatcher"]})"
+			}
+		}
+
+		return bodyMatchers.join('\n')
+
 	}
 	
 	/*
