@@ -1,6 +1,7 @@
 import java.lang.annotation.AnnotationFormatError
 import groovy.json.JsonSlurper
 import groovy.transform.*
+import groovy.json.StringEscapeUtils
 
 @GrabConfig( )
 @Grab('org.yaml:snakeyaml:1.17')
@@ -229,14 +230,14 @@ ${generateSampleJsonForBody(openApiSpec.definitions, responseBodySchema)}
 		
 		def schemaType = (schema.type == 'array') ? schema.items : schema 
 		
-		if (schemaType['$ref']){
+		if (schemaType.containsKey('$ref')){
 		   def bodyType = schemaTypeFromRef(schemaType)
 		   def builder = new groovy.json.JsonBuilder()
 		   def content = [schemaToJsonExample(builder, schemaDefinitions,bodyType)]
 		   return (schema.type == 'array') ?
 			 new groovy.json.JsonBuilder(content).toPrettyString() : builder.toPrettyString()
 		} else if (schema.type == 'string') {
-			return '"' + sampleValueForSimpleTypeField("body",schemaType) + '"'
+			return '"' + StringEscapeUtils.escapeJava(sampleValueForSimpleTypeField("body",schemaType)) + '"'
 		} else if (schema.type == 'object') {
 			// generic type 'Object' can not be interpreted.
 			return "{ }"
